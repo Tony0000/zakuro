@@ -571,6 +571,7 @@ impl ApplicationHandler for App {
         for command in commands {
             self.menu_command(command, event_loop);
         }
+        self.apply_resolution();
         let shown = self.shown();
         if let Some(bar) = &mut self.menu_bar {
             bar.show(&shown);
@@ -582,12 +583,34 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    /// draws the running game's 3D at the resolution the settings say, when
+    /// it isn't, once the settings window that changes it closes, so the
+    /// slider going through each on its way doesn't start the GPU's
+    /// drawing over at every one.
+    fn apply_resolution(&mut self) {
+        let Some(game) = self.game.as_mut().filter(|_| !self.menus.settings_open) else { return };
+        let resolution = self.settings.resolution;
+        if game.system.config.resolution == resolution {
+            return;
+        }
+        match game.system.set_resolution(resolution) {
+            Some(Ok(scale)) => self.menus.toast = Some((format!("The 3D is drawn at {scale}x"), Instant::now())),
+            Some(Err(error)) => {
+                log::warn!("{error}, drawing in software");
+                self.menus.message = Some(format!("The 3D could not be drawn on the GPU at {resolution}x, {error}. It's drawn on the CPU until the game starts again."));
+            }
+            None => {}
+        }
+    }
+
     /// what the menu bar shows ticked and greyed out.
     fn shown(&self) -> menubar::Shown {
         menubar::Shown {
             game: self.game.is_some(),
             paused: self.paused,
             slot: self.menus.slot,
+            on_gpu: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
+            resolution: self.settings.resolution,
             screens: self.settings.layout,
             top_shape: self.settings.top_shape,
             filter: self.settings.filter,
@@ -632,6 +655,10 @@ impl App {
             Command::CheatsFolder => self.act(Action::CheatsFolder, event_loop),
             Command::Multiplayer => self.menus.multiplayer_open = true,
             Command::CameraPicture => self.act(Action::ChooseCameraPicture, event_loop),
+            Command::Resolution(resolution) => {
+                self.settings.resolution = resolution;
+                self.apply_settings();
+            }
             Command::Screens(screens) => {
                 self.settings.layout = screens;
                 self.apply_settings();

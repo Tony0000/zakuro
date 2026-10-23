@@ -620,6 +620,42 @@ impl Gpu {
         Ok(name)
     }
 
+    /// draws at another multiple of the console's resolution, on a new
+    /// renderer on the device given, what the old one drew written back to
+    /// memory first for the new one to take up, and says the scale it draws
+    /// at, none drawing in software. a renderer keeps the scale it began
+    /// with while it holds buffers, see Hardware::set_scale, so it goes
+    /// rather than changes.
+    #[cfg(feature = "vulkan")]
+    pub fn rescale_hardware_renderer<M: GpuMemory>(
+        &mut self,
+        memory: &mut M,
+        scale: u32,
+        device: Option<std::sync::Arc<SharedDevice>>,
+        title: Option<u64>,
+    ) -> Option<Result<u32, String>> {
+        let now = self.resources.hardware.as_ref()?.scale();
+        if now == scale {
+            return Some(Ok(now));
+        }
+        self.write_back_all(memory);
+        let interpolates = self.interpolates();
+        if interpolates {
+            self.set_interpolation(false);
+        }
+        // the old one's images go before the new one's are made
+        self.resources.hardware = None;
+        let made = self.enable_hardware_renderer(scale, device, title).map(|name| {
+            log::info!("drawing on {name} through Vulkan");
+            self.scale()
+        });
+        self.forget_drawing();
+        if interpolates {
+            self.set_interpolation(true);
+        }
+        Some(made)
+    }
+
     /// draws the texture pack's pictures in place of the textures they
     /// replace, or no pack's. only the host's GPU draws them, so a pack
     /// waits for enable_hardware_renderer, and says whether it is drawn.
@@ -1642,6 +1678,26 @@ mod tests {
         assert_eq!(gpu.internal[0x0100], 0x1111, "the sub-buffer ran");
         assert_eq!(gpu.internal[0x0102], 0x2222, "the jump back ran");
         assert_eq!(gpu.internal[0x0101], 0, "a jump does not return");
+    }
+
+    /// the GPU's drawing goes to another resolution as the game runs, the
+    /// renderer drawing at it from then on, and stays when asked for the
+    /// one it has. a machine with no GPU for it has nothing to change.
+    #[cfg(feature = "vulkan")]
+    #[test]
+    fn the_resolution_changes_while_drawing_on_the_gpu() {
+        let mut gpu = Gpu::new();
+        let mut memory = FlatMemory(vec![0; 0x1000]);
+        assert_eq!(gpu.rescale_hardware_renderer(&mut memory, 4, None, None), None, "drawing in software");
+        if gpu.enable_hardware_renderer(2, None, None).is_err() {
+            return;
+        }
+        assert_eq!(gpu.scale(), 2);
+        assert_eq!(gpu.rescale_hardware_renderer(&mut memory, 4, None, None), Some(Ok(4)));
+        assert_eq!(gpu.scale(), 4);
+        assert_eq!(gpu.rescale_hardware_renderer(&mut memory, 4, None, None), Some(Ok(4)), "the same one");
+        assert_eq!(gpu.rescale_hardware_renderer(&mut memory, 1, None, None), Some(Ok(1)));
+        assert_eq!(gpu.scale(), 1);
     }
 
     /// flat memory that hands its bytes out in one piece, and nothing

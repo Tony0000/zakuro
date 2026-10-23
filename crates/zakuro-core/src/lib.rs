@@ -764,6 +764,17 @@ impl System {
         self.gpu.set_twins(gap == 2);
     }
 
+    /// draws the 3D at another multiple of the console's resolution, when
+    /// the host's GPU draws it, and says at what, none drawing in software.
+    /// a game that failed on the GPU at the new one draws in software.
+    pub fn set_resolution(&mut self, resolution: u32) -> Option<Result<u32, String>> {
+        self.config.resolution = resolution;
+        let device = self.config.device.clone();
+        let title = Some(self.kernel.program_id);
+        let mut guest = GuestMemory { linear_base: self.kernel.linear_base, memory: &mut self.memory };
+        self.gpu.rescale_hardware_renderer(&mut guest, resolution, device, title)
+    }
+
     /// draws a picture in between each two of the title's own from now on,
     /// when it draws one every other refresh, see pace, or stops. it says
     /// whether it does, it takes the host's GPU showing the screens.

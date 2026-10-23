@@ -27,6 +27,8 @@ pub enum Command {
     CheatsFolder,
     Multiplayer,
     CameraPicture,
+    /// how many times the console's resolution the GPU draws the 3D at.
+    Resolution(u32),
     Screens(Screens),
     TopShape(TopShape),
     Filter(Filter),
@@ -43,6 +45,9 @@ pub struct Shown {
     pub game: bool,
     pub paused: bool,
     pub slot: u8,
+    /// whether the GPU draws the 3D, the resolution only counts then.
+    pub on_gpu: bool,
+    pub resolution: u32,
     pub screens: Screens,
     pub top_shape: TopShape,
     pub filter: Filter,
@@ -56,6 +61,8 @@ pub struct Shown {
 
 /// the state slots, as the menu over the game counts them.
 const SLOTS: std::ops::RangeInclusive<u8> = 1..=9;
+/// the resolutions, as the settings window has them.
+const RESOLUTIONS: std::ops::RangeInclusive<u32> = 1..=8;
 
 #[cfg(any(target_os = "macos", windows))]
 pub use native::MenuBar;
@@ -71,7 +78,7 @@ mod native {
     use muda::{CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
     use winit::window::Window;
 
-    use super::{Command, Shown, SLOTS};
+    use super::{Command, Shown, RESOLUTIONS, SLOTS};
     use crate::settings::{Filter, Screens, Stereo3d, TopShape};
 
     /// a shortcut on macOS, where the menus take the keys with Command
@@ -107,6 +114,8 @@ mod native {
         choose_folder: MenuItem,
         pause: CheckMenuItem,
         slots: Choices<u8>,
+        resolutions: Choices<u32>,
+        resolution_menu: Submenu,
         screens: Choices<Screens>,
         top_shapes: Choices<TopShape>,
         filters: Choices<Filter>,
@@ -232,6 +241,9 @@ mod native {
                 commands.insert(id.clone(), command);
                 CheckMenuItem::with_id(id, text, true, false, accelerator)
             };
+            let resolutions = Choices {
+                items: RESOLUTIONS.map(|scale| (scale, check(&format!("{scale}x"), Command::Resolution(scale), None))).collect(),
+            };
             let digits = [Code::Digit1, Code::Digit2, Code::Digit3, Code::Digit4, Code::Digit5];
             let screens = Choices {
                 items: Screens::ALL.iter().zip(digits).map(|(&screens, digit)| (screens, check(screens.name(), Command::Screens(screens), cmd(digit)))).collect(),
@@ -249,8 +261,11 @@ mod native {
                 }
                 Ok(submenu)
             };
+            let resolution_menu = list("Resolução Interna", resolutions.items.iter().map(|(_, item)| item).collect())?;
             let view = Submenu::new("&View", true);
             view.append_items(&[
+                &resolution_menu,
+                &PredefinedMenuItem::separator(),
                 &list("Screens (F9)", screens.items.iter().map(|(_, item)| item).collect())?,
                 &list("Top screen shape", top_shapes.items.iter().map(|(_, item)| item).collect())?,
                 &list("Filter", filters.items.iter().map(|(_, item)| item).collect())?,
@@ -303,6 +318,8 @@ mod native {
                 choose_folder,
                 pause,
                 slots,
+                resolutions,
+                resolution_menu,
                 screens,
                 top_shapes,
                 filters,
@@ -349,6 +366,8 @@ mod native {
             }
             self.pause.set_checked(shown.paused);
             self.slots.show(shown.slot);
+            self.resolutions.show(shown.resolution);
+            self.resolution_menu.set_enabled(shown.on_gpu);
             self.screens.show(shown.screens);
             self.top_shapes.show(shown.top_shape);
             self.filters.show(shown.filter);
