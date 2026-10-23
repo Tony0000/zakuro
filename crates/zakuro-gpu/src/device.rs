@@ -29,11 +29,27 @@ impl SharedDevice {
     }
 }
 
-/// the system's Vulkan library. on macOS there is none of the system's,
-/// MoltenVK comes beside the app or from Homebrew, whose folder the default
-/// search leaves out, ZAKURO_VULKAN_LIB names another.
+/// the system's Vulkan library. on macOS there is none of the system's:
+/// ZAKURO_VULKAN_LIB names one, an app brings MoltenVK in its Frameworks,
+/// which comes before any other, or else it comes from Homebrew, whose
+/// folder the default search leaves out.
 pub(crate) fn load_entry() -> Result<ash::Entry, String> {
-    // SAFETY: loading the Vulkan library has no other requirements
+    let load = |path: &std::path::Path| {
+        // SAFETY: a Vulkan library or a driver that is one, which has no
+        // other requirements to load
+        let entry = unsafe { ash::Entry::load_from(path) }.ok()?;
+        log::info!("Vulkan from {}", path.display());
+        Some(entry)
+    };
+    let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.to_owned()));
+    if cfg!(target_os = "macos") {
+        let named = std::env::var_os("ZAKURO_VULKAN_LIB").map(std::path::PathBuf::from);
+        let bundled = beside.as_ref().map(|dir| dir.join("../Frameworks/libMoltenVK.dylib"));
+        if let Some(entry) = named.into_iter().chain(bundled).find_map(|path| load(&path)) {
+            return Ok(entry);
+        }
+    }
+    // SAFETY: as above
     let error = match unsafe { ash::Entry::load() } {
         Ok(entry) => return Ok(entry),
         Err(error) => error,
@@ -41,22 +57,14 @@ pub(crate) fn load_entry() -> Result<ash::Entry, String> {
     if !cfg!(target_os = "macos") {
         return Err(error.to_string());
     }
-    let mut candidates: Vec<std::path::PathBuf> = std::env::var_os("ZAKURO_VULKAN_LIB").into_iter().map(Into::into).collect();
-    if let Some(dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.to_owned())) {
-        candidates.push(dir.join("../Frameworks/libMoltenVK.dylib"));
-        candidates.push(dir.join("libMoltenVK.dylib"));
-    }
+    let mut candidates: Vec<std::path::PathBuf> = beside.map(|dir| dir.join("libMoltenVK.dylib")).into_iter().collect();
     for name in ["libvulkan.1.dylib", "/opt/homebrew/lib/libvulkan.1.dylib", "/opt/homebrew/lib/libMoltenVK.dylib", "/usr/local/lib/libvulkan.1.dylib", "/usr/local/lib/libMoltenVK.dylib"] {
         candidates.push(name.into());
     }
-    for path in candidates {
-        // SAFETY: as above, a Vulkan library or a driver that is one
-        if let Ok(entry) = unsafe { ash::Entry::load_from(&path) } {
-            log::info!("Vulkan from {}", path.display());
-            return Ok(entry);
-        }
-    }
-    Err(format!("{error}, and no MoltenVK either, brew install molten-vk"))
+    candidates
+        .iter()
+        .find_map(|path| load(path))
+        .ok_or_else(|| format!("{error}, and no MoltenVK either, brew install molten-vk"))
 }
 
 /// the extensions and flags an instance needs to list GPUs that are not
