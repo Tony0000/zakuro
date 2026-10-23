@@ -5,6 +5,7 @@
 mod audio;
 mod camera;
 mod cli;
+mod game_icon;
 mod gamepad;
 mod gui;
 mod input;
@@ -843,6 +844,9 @@ impl App {
             .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
             .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
             .unwrap_or_default();
+        if let (Some(window), Some(smdh)) = (&self.window, system.title.as_ref().and_then(|title| library::Smdh::parse(title.exefs_file("icon")?))) {
+            game_icon::show(window, &smdh.icon);
+        }
         let mut game = Running::new(system, path.to_owned(), name);
         game.replay = replay;
         if let Some(record) = record {
@@ -875,6 +879,9 @@ impl App {
 
     fn back_to_library(&mut self) {
         self.game = None;
+        if let Some(window) = &self.window {
+            game_icon::clear(window);
+        }
         if let Some(room) = &self.room {
             room.playing("");
         }
