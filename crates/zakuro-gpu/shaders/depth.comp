@@ -20,6 +20,8 @@ layout(push_constant) uniform Copy {
     int source_row;
     // whether samples carry stencil, and the texture is rgba8
     int stencil;
+    // whether the depths are floats, from a D32S8 image
+    int float_depth;
 } copy;
 
 void main() {
@@ -30,6 +32,12 @@ void main() {
     int row = copy.surface_height - 1 - (copy.source_row + at.y);
     int index = row * copy.surface_width + at.x;
     uint depth = depths[index] & 0xFFFFFFu;
+    if (copy.float_depth != 0) {
+        // the nearest of the 24 bit depths, d * 2^24 - d without the
+        // rounding d * (2^24 - 1) would add
+        float d = clamp(uintBitsToFloat(depths[index]), 0.0, 1.0);
+        depth = uint(round(d * 16777216.0 - d));
+    }
     uvec3 bytes = uvec3(depth >> 16, depth >> 8, depth) & 0xFFu;
     uvec4 color;
     if (copy.stencil != 0) {

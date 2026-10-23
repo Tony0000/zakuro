@@ -680,7 +680,9 @@ impl Menus {
                     })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut settings.renderer, Renderer::Vulkan, "Vulkan");
-                        ui.selectable_value(&mut settings.renderer, Renderer::OpenGl, "OpenGL");
+                        if cfg!(feature = "opengl") {
+                            ui.selectable_value(&mut settings.renderer, Renderer::OpenGl, "OpenGL");
+                        }
                     });
                 ui.checkbox(&mut settings.hardware_rasterizer, "Draw the 3D on the GPU");
                 ui.add_enabled(

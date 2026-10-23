@@ -134,10 +134,7 @@ impl VulkanPresenter {
         window: &(impl HasDisplayHandle + HasWindowHandle),
         size: (u32, u32),
     ) -> Result<VulkanPresenter, PresentError> {
-        // SAFETY: the loader reads the system's Vulkan library, which is the
-        // documented way to start.
-        let entry = unsafe { ash::Entry::load() }
-            .map_err(|e| fail(format!("no Vulkan loader: {e}")))?;
+        let entry = crate::device::load_entry().map_err(|e| fail(format!("no Vulkan loader: {e}")))?;
 
         let display = window
             .display_handle()
@@ -153,11 +150,14 @@ impl VulkanPresenter {
             .engine_name(c"Zakuro")
             .api_version(vk::API_VERSION_1_3);
 
-        let extensions = ash_window::enumerate_required_extensions(display.as_raw())
+        let mut extensions = ash_window::enumerate_required_extensions(display.as_raw())
             .map_err(vk_fail("querying surface extensions"))?
             .to_vec();
+        let (portability, flags) = crate::device::portability(&entry);
+        extensions.extend(portability);
 
         let instance_info = vk::InstanceCreateInfo::default()
+            .flags(flags)
             .application_info(&application)
             .enabled_extension_names(&extensions);
         let instance = unsafe { entry.create_instance(&instance_info, None) }
@@ -207,9 +207,11 @@ impl VulkanPresenter {
                 let queue_info = [vk::DeviceQueueCreateInfo::default()
                     .queue_family_index(queue_family)
                     .queue_priorities(&priorities)];
+                let mut extensions = swapchain_extension.to_vec();
+                extensions.extend(crate::device::portability_subset(&instance, physical_device));
                 let device_info = vk::DeviceCreateInfo::default()
                     .queue_create_infos(&queue_info)
-                    .enabled_extension_names(&swapchain_extension);
+                    .enabled_extension_names(&extensions);
                 unsafe { instance.create_device(physical_device, &device_info, None) }
                     .map_err(vk_fail("creating the device"))?
             }

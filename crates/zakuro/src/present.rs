@@ -1,15 +1,23 @@
 //! wiring a presentation backend to a winit window.
 
+#[cfg(feature = "opengl")]
 use glutin::config::ConfigTemplateBuilder;
+#[cfg(feature = "opengl")]
 use glutin::context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentContext, Version};
+#[cfg(feature = "opengl")]
 use glutin::display::GetGlDisplay;
+#[cfg(feature = "opengl")]
 use glutin::prelude::*;
+#[cfg(feature = "opengl")]
 use glutin::surface::{Surface, SwapInterval, WindowSurface};
+#[cfg(feature = "opengl")]
 use glutin_winit::{DisplayBuilder, GlWindow};
+#[cfg(feature = "opengl")]
 use raw_window_handle::HasWindowHandle;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowAttributes};
 
+#[cfg(feature = "opengl")]
 use zakuro_gpu::backend::gl::GlPresenter;
 use zakuro_gpu::backend::vulkan::VulkanPresenter;
 use zakuro_gpu::{Overlay, PresentError, Presenter, RendererKind, ScreenImage, ScreenLayout, SharedDevice};
@@ -18,6 +26,7 @@ use zakuro_gpu::{Overlay, PresentError, Presenter, RendererKind, ScreenImage, Sc
 // is not worth an extra allocation to avoid.
 #[allow(clippy::large_enum_variant)]
 pub enum Backend {
+    #[cfg(feature = "opengl")]
     OpenGl {
         presenter: GlPresenter,
         context: PossiblyCurrentContext,
@@ -36,7 +45,10 @@ impl Backend {
         kind: RendererKind,
     ) -> Result<(Window, Backend), String> {
         match kind {
+            #[cfg(feature = "opengl")]
             RendererKind::OpenGl => create_opengl(event_loop, attributes),
+            #[cfg(not(feature = "opengl"))]
+            RendererKind::OpenGl => Err("this build has no OpenGL renderer".to_owned()),
             RendererKind::Vulkan => create_vulkan(event_loop, attributes),
             RendererKind::Software => {
                 let window = event_loop
@@ -49,6 +61,7 @@ impl Backend {
 
     pub fn name(&self) -> &'static str {
         match self {
+            #[cfg(feature = "opengl")]
             Backend::OpenGl { presenter, .. } => presenter.name(),
             Backend::Vulkan(presenter) => presenter.name(),
             Backend::None => "none",
@@ -58,6 +71,7 @@ impl Backend {
     pub fn resize(&mut self, width: u32, height: u32) {
         let (width, height) = (width.max(1), height.max(1));
         match self {
+            #[cfg(feature = "opengl")]
             Backend::OpenGl {
                 presenter,
                 context,
@@ -79,6 +93,7 @@ impl Backend {
     /// for the vertical blank.
     pub fn waits_for_display(&self) -> bool {
         match self {
+            #[cfg(feature = "opengl")]
             Backend::OpenGl { .. } => true,
             Backend::Vulkan(presenter) => presenter.waits_for_display(),
             Backend::None => false,
@@ -96,6 +111,7 @@ impl Backend {
 
     pub fn set_scaling(&mut self, filter: zakuro_gpu::ScreenFilter, integer: bool) {
         match self {
+            #[cfg(feature = "opengl")]
             Backend::OpenGl { presenter, .. } => presenter.set_scaling(filter, integer),
             Backend::Vulkan(presenter) => presenter.set_scaling(filter, integer),
             Backend::None => {}
@@ -104,6 +120,7 @@ impl Backend {
 
     pub fn set_stereo(&mut self, stereo: zakuro_gpu::Stereo) {
         match self {
+            #[cfg(feature = "opengl")]
             Backend::OpenGl { presenter, .. } => presenter.set_stereo(stereo),
             Backend::Vulkan(presenter) => presenter.set_stereo(stereo),
             Backend::None => {}
@@ -112,6 +129,7 @@ impl Backend {
 
     pub fn set_layout(&mut self, arrangement: ScreenLayout) {
         match self {
+            #[cfg(feature = "opengl")]
             Backend::OpenGl { presenter, .. } => presenter.set_layout(arrangement),
             Backend::Vulkan(presenter) => presenter.set_layout(arrangement),
             Backend::None => {}
@@ -120,6 +138,7 @@ impl Backend {
 
     pub fn set_top_width(&mut self, width: f32) {
         match self {
+            #[cfg(feature = "opengl")]
             Backend::OpenGl { presenter, .. } => presenter.set_top_width(width),
             Backend::Vulkan(presenter) => presenter.set_top_width(width),
             Backend::None => {}
@@ -134,6 +153,7 @@ impl Backend {
         overlay: &Overlay,
     ) -> Result<(), PresentError> {
         match self {
+            #[cfg(feature = "opengl")]
             Backend::OpenGl {
                 presenter,
                 context,
@@ -150,6 +170,7 @@ impl Backend {
     }
 }
 
+#[cfg(feature = "opengl")]
 fn create_opengl(
     event_loop: &ActiveEventLoop,
     attributes: WindowAttributes,
@@ -216,6 +237,7 @@ fn create_opengl(
 
     Ok((
         window,
+        #[cfg(feature = "opengl")]
         Backend::OpenGl {
             presenter,
             context,

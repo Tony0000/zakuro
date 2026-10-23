@@ -467,11 +467,13 @@ impl ApplicationHandler for App {
         let attributes = Window::default_attributes().with_title("Zakuro").with_inner_size(size);
         let renderer = self.options.renderer.unwrap_or(match self.settings.renderer {
             Renderer::Vulkan => RendererKind::Vulkan,
+            // a setting carried over from a build that had it
+            Renderer::OpenGl if !cfg!(feature = "opengl") => RendererKind::Vulkan,
             Renderer::OpenGl => RendererKind::OpenGl,
         });
 
         let backend = Backend::create(event_loop, attributes.clone(), renderer).or_else(|error| {
-            if renderer != RendererKind::Vulkan {
+            if renderer != RendererKind::Vulkan || !cfg!(feature = "opengl") {
                 return Err(error);
             }
             // a machine without a working Vulkan driver still gets a window
@@ -494,6 +496,15 @@ impl ApplicationHandler for App {
             }
             Err(error) => {
                 eprintln!("zakuro: could not start the {renderer:?} backend: {error}");
+                if !cfg!(feature = "opengl") {
+                    // started from Finder there is no terminal to read
+                    let hint = if cfg!(target_os = "macos") { "\n\nInstall MoltenVK: brew install molten-vk" } else { "" };
+                    rfd::MessageDialog::new()
+                        .set_level(rfd::MessageLevel::Error)
+                        .set_title("Zakuro")
+                        .set_description(format!("Could not start Vulkan: {error}{hint}"))
+                        .show();
+                }
                 event_loop.exit();
             }
         }
