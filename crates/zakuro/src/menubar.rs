@@ -27,6 +27,8 @@ pub enum Command {
     CheatsFolder,
     Multiplayer,
     CameraPicture,
+    /// a texture pack to put in, a folder when true, a .zip otherwise.
+    InstallTexturePack(bool),
     /// how many times the console's resolution the GPU draws the 3D at.
     Resolution(u32),
     Screens(Screens),
@@ -213,6 +215,8 @@ mod native {
             let fullscreen = item("Fullscreen (F11)", Command::Fullscreen, key(Modifiers::META | Modifiers::CONTROL, Code::KeyF));
             let camera = item("Show the camera a picture…", Command::CameraPicture, None);
             let multiplayer = item("Multiplayer…", Command::Multiplayer, None);
+            let install_zip = item("Install a texture pack (.zip)…", Command::InstallTexturePack(false), None);
+            let install_folder = item("Install a texture pack (folder)…", Command::InstallTexturePack(true), None);
             let report = item("Copy info for a report", Command::CopyReport, None);
             let cheats_window = item("Cheats…", Command::Cheats, None);
             let reload = item("Reload the cheats", Command::ReloadCheats, None);
@@ -284,7 +288,15 @@ mod native {
             menu.append(&cheats)?;
 
             let tools = Submenu::new("&Tools", true);
-            tools.append_items(&[&multiplayer, &camera, &PredefinedMenuItem::separator(), &mute])?;
+            tools.append_items(&[
+                &multiplayer,
+                &camera,
+                &PredefinedMenuItem::separator(),
+                &install_zip,
+                &install_folder,
+                &PredefinedMenuItem::separator(),
+                &mute,
+            ])?;
             if !mac {
                 tools.append_items(&[&PredefinedMenuItem::separator(), &settings])?;
             }
@@ -304,7 +316,7 @@ mod native {
             help.append(&report)?;
             menu.append(&help)?;
 
-            for item in [resume, reset, save, load, library, camera, report, reload, cheats_folder, cheats_window] {
+            for item in [resume, reset, save, load, library, camera, report, reload, cheats_folder, cheats_window, install_zip, install_folder] {
                 for_game.push(Box::new(move |on| item.set_enabled(on)));
             }
             for_game.push(Box::new(move |on| slot_menu.set_enabled(on)));

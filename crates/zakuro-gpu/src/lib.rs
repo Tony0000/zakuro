@@ -660,6 +660,14 @@ impl Gpu {
     /// replace, or no pack's. only the host's GPU draws them, so a pack
     /// waits for enable_hardware_renderer, and says whether it is drawn.
     pub fn set_texture_pack(&mut self, pack: Option<std::sync::Arc<pack::Pack>>) -> bool {
+        // pictures of the pack before go, one for the same texture in this
+        // one would draw in its place otherwise
+        #[cfg(feature = "vulkan")]
+        if let Some(hardware) = self.resources.hardware.as_mut() {
+            if let Err(error) = hardware.forget_pictures() {
+                log::error!("the GPU could not let go of the texture pack's pictures, {error}");
+            }
+        }
         #[cfg(feature = "vulkan")]
         let pack = pack.filter(|_| self.resources.hardware.is_some());
         #[cfg(not(feature = "vulkan"))]

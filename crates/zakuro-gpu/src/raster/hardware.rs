@@ -4927,6 +4927,23 @@ impl Hardware {
         Ok(())
     }
 
+    /// lets go of every texture pack picture, read or uploaded, another
+    /// pack taking the place of the one they came from, once the GPU is
+    /// done with what it was handed.
+    pub(crate) fn forget_pictures(&mut self) -> Result<(), String> {
+        self.submit()?;
+        self.wait()?;
+        for (_, (material, _)) in self.waiting.drain() {
+            material.release();
+        }
+        let replaced: Vec<Replaced> = self.replaced.drain().map(|(_, replaced)| replaced).collect();
+        for replaced in replaced {
+            self.destroy_image(&replaced.image);
+        }
+        self.replaced_bytes = 0;
+        Ok(())
+    }
+
     /// whether the pictures take most of the room they may, in bytes or in
     /// how many there are.
     fn crowded(&self) -> bool {

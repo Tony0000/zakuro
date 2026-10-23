@@ -60,6 +60,9 @@ pub enum Action {
     ReloadCheats,
     /// show the cheats folder.
     CheatsFolder,
+    /// pick a texture pack to put in the running game's mods and draw
+    /// with, a folder when true, a .zip otherwise.
+    InstallTexturePack(bool),
 }
 
 #[derive(Default)]
@@ -690,8 +693,17 @@ impl Menus {
                     egui::Slider::new(&mut settings.resolution, 1..=8).text("Resolution").suffix("x"),
                 )
                 .on_hover_text("How many times the console's resolution the 3D is drawn at. Past what the window shows, the extra pixels smooth the edges, at a cost to the GPU that grows fast.");
-                ui.add_enabled(settings.hardware_rasterizer, egui::Checkbox::new(&mut settings.texture_packs, "Texture packs"))
-                    .on_hover_text("Draw a game's texture pack, made for Citra or Azahar, put in the textures folder of the game's mods folder.");
+                ui.horizontal(|ui| {
+                    ui.add_enabled(settings.hardware_rasterizer, egui::Checkbox::new(&mut settings.texture_packs, "Texture packs"))
+                        .on_hover_text("Draw a game's texture pack, made for Citra or Azahar, put in the textures folder of the game's mods folder.");
+                    let install = "Put a texture pack in the running game's mods and draw with it, without starting the game again.";
+                    if ui.add_enabled(settings.hardware_rasterizer, egui::Button::new("Install a .zip…")).on_hover_text(install).clicked() {
+                        actions.push(Action::InstallTexturePack(false));
+                    }
+                    if ui.add_enabled(settings.hardware_rasterizer, egui::Button::new("Install a folder…")).on_hover_text(install).clicked() {
+                        actions.push(Action::InstallTexturePack(true));
+                    }
+                });
                 let interpolates = settings.hardware_rasterizer && settings.renderer == Renderer::Vulkan;
                 ui.add_enabled(interpolates, egui::Checkbox::new(&mut settings.frame_interpolation, "Frame interpolation"))
                     .on_hover_text("A game at 30 frames a second gets a picture drawn in between each two of its own, with everything halfway between where it was in both, so it moves at 60. The screens show a 60th of a second late. It takes the 3D drawn on the GPU and the Vulkan presenter.");

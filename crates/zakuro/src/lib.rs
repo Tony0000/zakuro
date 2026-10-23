@@ -15,6 +15,7 @@ mod present;
 mod recompile;
 mod report;
 mod settings;
+mod texture_pack;
 mod zig;
 
 use std::path::{Path, PathBuf};
@@ -91,6 +92,7 @@ pub fn run(linked: Option<Linked>) {
         backend: None,
         menu_bar: None,
         window: None,
+        texture_pack: None,
         audio: None,
         mouse_down: false,
         tilting_from: None,
@@ -358,6 +360,8 @@ struct App {
     /// before the window they're in
     menu_bar: Option<menubar::MenuBar>,
     window: Option<Window>,
+    /// a texture pack going in.
+    texture_pack: Option<texture_pack::Install>,
     keyboard: Keyboard,
     gamepads: gamepad::Gamepads,
     audio: Option<audio::Audio>,
@@ -572,6 +576,7 @@ impl ApplicationHandler for App {
             self.menu_command(command, event_loop);
         }
         self.apply_resolution();
+        self.poll_texture_pack();
         let shown = self.shown();
         if let Some(bar) = &mut self.menu_bar {
             bar.show(&shown);
@@ -600,6 +605,56 @@ impl App {
                 self.menus.message = Some(format!("The 3D could not be drawn on the GPU at {resolution}x, {error}. It's drawn on the CPU until the game starts again."));
             }
             None => {}
+        }
+    }
+
+    /// picks a texture pack, a folder or a .zip, and puts it in the running
+    /// game's mods on a thread of its own, see poll_texture_pack.
+    fn install_texture_pack(&mut self, folder: bool) {
+        if self.texture_pack.is_some() {
+            self.menus.message = Some("A texture pack is going in already, wait for it to finish.".into());
+            return;
+        }
+        let (Some(game), Some(data_dir)) = (&self.game, &self.data_dir) else {
+            self.menus.message = Some("Start the game the texture pack is for, then install it.".into());
+            return;
+        };
+        let program_id = mods_id(&game.system);
+        let dialog = rfd::FileDialog::new().set_title("A texture pack made for Citra or Azahar");
+        let picked = if folder { dialog.pick_folder() } else { dialog.add_filter("Texture pack", &["zip"]).pick_file() };
+        let Some(source) = picked else { return };
+        let textures = zakuro_core::mods::textures(data_dir, program_id);
+        let install = texture_pack::Install::start(source, textures, program_id);
+        self.menus.toast = Some((format!("Installing the texture pack {}…", install.name), Instant::now()));
+        self.texture_pack = Some(install);
+    }
+
+    /// draws with the game's texture packs once one put in is in, without
+    /// starting the game again.
+    fn poll_texture_pack(&mut self) {
+        let Some(done) = self.texture_pack.as_ref().and_then(texture_pack::Install::finished) else { return };
+        let Some(install) = self.texture_pack.take() else { return };
+        let pack = match done {
+            Ok(pack) => pack,
+            Err(error) => {
+                self.menus.message = Some(format!("The texture pack {} could not be installed: {error}.", install.name));
+                return;
+            }
+        };
+        log::info!("texture pack {} installed for {:016X}", install.name, install.program_id);
+        if !self.settings.texture_packs {
+            self.settings.texture_packs = true;
+            self.settings.save();
+        }
+        let Some(game) = self.game.as_mut().filter(|game| mods_id(&game.system) == install.program_id) else { return };
+        let drawn = game.system.gpu.set_texture_pack(pack.map(std::sync::Arc::new));
+        if drawn {
+            self.menus.toast = Some((format!("The texture pack {} is in", install.name), Instant::now()));
+        } else {
+            self.menus.message = Some(format!(
+                "The texture pack {} is installed. It shows once the 3D is drawn on the GPU, which this game started without.",
+                install.name
+            ));
         }
     }
 
@@ -655,6 +710,7 @@ impl App {
             Command::CheatsFolder => self.act(Action::CheatsFolder, event_loop),
             Command::Multiplayer => self.menus.multiplayer_open = true,
             Command::CameraPicture => self.act(Action::ChooseCameraPicture, event_loop),
+            Command::InstallTexturePack(folder) => self.act(Action::InstallTexturePack(folder), event_loop),
             Command::Resolution(resolution) => {
                 self.settings.resolution = resolution;
                 self.apply_settings();
@@ -1259,6 +1315,7 @@ impl App {
                     game.system.cheats.extend(enhancements);
                 }
             }
+            Action::InstallTexturePack(folder) => self.install_texture_pack(folder),
             Action::CheatsFolder => {
                 if let Some(folder) = self.cheats_path().and_then(|path| path.parent().map(Path::to_owned)) {
                     match std::fs::create_dir_all(&folder) {
@@ -1696,6 +1753,11 @@ impl App {
             }
         }
     }
+}
+
+/// the title id a game's mods go under, as the loader looks for them.
+fn mods_id(system: &System) -> u64 {
+    system.title.as_ref().map_or(system.kernel.program_id, |title| title.program_id())
 }
 
 /// what the multiplayer window shows of Download Play: the offers in the
