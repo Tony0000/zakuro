@@ -46,6 +46,11 @@ zakuro-fs = { workspace = true, features = ["testing"] }
 
 # the computer's camera, for the console's, with the frames turned into
 # pictures here rather than by its C decoder
+# the menus of the bar macOS keeps at the top of the screen and Windows in
+# the window, the same as the menu Escape opens over a game
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+muda = { version = "0.21", default-features = false }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 nokhwa = { version = "0.10.11", default-features = false, features = ["input-v4l"] }
 

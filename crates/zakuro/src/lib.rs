@@ -9,6 +9,7 @@ mod gamepad;
 mod gui;
 mod input;
 mod library;
+mod menubar;
 mod menus;
 mod present;
 mod recompile;
@@ -88,6 +89,7 @@ pub fn run(linked: Option<Linked>) {
         jobs: Vec::new(),
         gui: None,
         backend: None,
+        menu_bar: None,
         window: None,
         audio: None,
         mouse_down: false,
@@ -352,6 +354,9 @@ struct App {
     // calls eglDestroySurface, which on Wayland does a protocol round-trip
     // against the window's wl_surface.
     backend: Option<Backend>,
+    /// the menus of macOS's bar or the window's on Windows, which go
+    /// before the window they're in
+    menu_bar: Option<menubar::MenuBar>,
     window: Option<Window>,
     keyboard: Keyboard,
     gamepads: gamepad::Gamepads,
@@ -488,6 +493,7 @@ impl ApplicationHandler for App {
                 backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                 backend.set_stereo(self.settings.stereo());
                 self.gui = Some(Gui::new(&window));
+                self.menu_bar = menubar::MenuBar::new(&window);
                 self.window = Some(window);
                 self.backend = Some(backend);
                 // the game the command line names starts on the device the
@@ -560,7 +566,15 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let commands = self.menu_bar.as_mut().map(menubar::MenuBar::commands).unwrap_or_default();
+        for command in commands {
+            self.menu_command(command, event_loop);
+        }
+        let shown = self.shown();
+        if let Some(bar) = &mut self.menu_bar {
+            bar.show(&shown);
+        }
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -568,6 +582,89 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    /// what the menu bar shows ticked and greyed out.
+    fn shown(&self) -> menubar::Shown {
+        menubar::Shown {
+            game: self.game.is_some(),
+            paused: self.paused,
+            slot: self.menus.slot,
+            screens: self.settings.layout,
+            top_shape: self.settings.top_shape,
+            filter: self.settings.filter,
+            stereo: self.settings.stereo,
+            integer_scale: self.settings.integer_scale,
+            show_fps: self.settings.show_fps,
+            mute: self.settings.mute,
+            cheats: self.game.as_ref().map_or_else(Vec::new, |game| game.system.cheats.iter().map(|cheat| (cheat.name.clone(), cheat.enabled)).collect()),
+        }
+    }
+
+    /// does what a click on the menu bar asks for, the same as the menu
+    /// over the game and the settings window do.
+    fn menu_command(&mut self, command: menubar::Command, event_loop: &ActiveEventLoop) {
+        use menubar::Command;
+        let in_game = self.game.is_some();
+        match command {
+            Command::Resume => {
+                self.paused = false;
+                self.act(Action::Resume, event_loop);
+            }
+            Command::Pause if in_game => {
+                self.paused = !self.paused;
+                log::info!("{}", if self.paused { "paused" } else { "resumed" });
+            }
+            Command::Reset => self.act(Action::Reset, event_loop),
+            Command::SaveState if in_game => self.act(Action::SaveState, event_loop),
+            Command::LoadState if in_game => self.act(Action::LoadState, event_loop),
+            Command::Slot(slot) => self.menus.slot = slot,
+            Command::Fullscreen => self.act(Action::Fullscreen, event_loop),
+            Command::Library if in_game => self.act(Action::Library, event_loop),
+            Command::ChooseFolder => self.act(Action::ChooseFolder, event_loop),
+            Command::CopyReport => self.act(Action::CopyReport, event_loop),
+            Command::Quit => self.act(Action::Quit, event_loop),
+            Command::Settings => self.menus.settings_open = true,
+            Command::Cheats if in_game => self.menus.cheats_open = true,
+            Command::Cheat(index) => {
+                let on = self.game.as_ref().and_then(|game| game.system.cheats.get(index)).is_some_and(|cheat| !cheat.enabled);
+                self.act(Action::Cheat(index, on), event_loop);
+            }
+            Command::ReloadCheats => self.act(Action::ReloadCheats, event_loop),
+            Command::CheatsFolder => self.act(Action::CheatsFolder, event_loop),
+            Command::Multiplayer => self.menus.multiplayer_open = true,
+            Command::CameraPicture => self.act(Action::ChooseCameraPicture, event_loop),
+            Command::Screens(screens) => {
+                self.settings.layout = screens;
+                self.apply_settings();
+            }
+            Command::TopShape(shape) => {
+                self.settings.top_shape = shape;
+                self.apply_settings();
+            }
+            Command::Filter(filter) => {
+                self.settings.filter = filter;
+                self.apply_settings();
+            }
+            Command::Stereo(stereo) => {
+                self.settings.stereo = stereo;
+                self.apply_settings();
+            }
+            Command::IntegerScale => {
+                self.settings.integer_scale = !self.settings.integer_scale;
+                self.apply_settings();
+            }
+            Command::ShowFps => {
+                self.settings.show_fps = !self.settings.show_fps;
+                self.settings.save();
+            }
+            Command::Mute => {
+                self.settings.mute = !self.settings.mute;
+                self.apply_settings();
+            }
+            // what only a running game takes, clicked as it stopped
+            Command::Pause | Command::SaveState | Command::LoadState | Command::Library | Command::Cheats => {}
+        }
+    }
+
     /// the console's settings for a game, from the command line and the
     /// settings.
     fn config(&self) -> Config {
